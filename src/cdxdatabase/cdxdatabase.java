@@ -63,7 +63,7 @@ public class cdxdatabase {
 
 		while (true) {
 
-			while ((_response = channel.basicGet(queueName, true)) ! = null) {
+			while ((_response = channel.basicGet(queueName, true)) != null) {
 
 				message = new String(_response.getBody());
 				routingkey = _response.getEnvelope().getRoutingKey().toString();
@@ -97,8 +97,7 @@ public class cdxdatabase {
 			jsonMap.put("data", message);
 		}
 		jsonMap.put("topic", routingkey);
-		jsonMap.put("from", from); // from must be changed to user name from properties while publishing to achieve
-									// this. https://www.rabbitmq.com/validated-user-id.html
+		jsonMap.put("from", from);
 		jsonMap.put("insertDate", new Date());
 
 		request.index(index);
