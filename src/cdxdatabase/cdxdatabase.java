@@ -70,10 +70,9 @@ public class cdxdatabase {
 				message = new String(_response.getBody());
 				routingkey = _response.getEnvelope().getRoutingKey().toString();
 				index = _response.getEnvelope().getExchange().toString();
-
-				// Get the User ID from properties, if not found set to unknown
-
-				from = "<unverified>";
+				from = _response.getProps().getUserId();
+				
+				if (from == null) { from = "<unverified>"; }
 
 				if (message == null) {
 					continue;
