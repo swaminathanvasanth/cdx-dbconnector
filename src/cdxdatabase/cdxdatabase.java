@@ -63,9 +63,7 @@ public class cdxdatabase {
 
 		while (true) {
 
-			_response = channel.basicGet(queueName, true);
-
-			if (_response != null) {
+			while ((_response = channel.basicGet(queueName, true)) ! = null) {
 
 				message = new String(_response.getBody());
 				routingkey = _response.getEnvelope().getRoutingKey().toString();
@@ -86,10 +84,8 @@ public class cdxdatabase {
 					}
 					posttoElastic();
 				}
-			} else {
-				Thread.sleep(5000);
-				continue;
 			}
+			Thread.sleep(5000);
 		}
 	}
 
