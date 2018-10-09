@@ -6,6 +6,9 @@ import java.io.IOException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
+
+import com.rabbitmq.client.AMQP.BasicProperties;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
@@ -18,6 +21,8 @@ import org.elasticsearch.client.RestHighLevelClient;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import com.rabbitmq.client.Consumer;
+import com.rabbitmq.client.DefaultConsumer;
+import com.rabbitmq.client.Envelope;
 
 public class cdxdatabase {
 
@@ -40,8 +45,9 @@ public class cdxdatabase {
 	static com.rabbitmq.client.GetResponse _response;
 	static Map<String, Object> jsonMap;
 	static boolean json = false;
+	static boolean connection_reset = false;
 
-	public static void main(String[] argv) throws Exception {
+	public static void main(String[] argv) {
 
 		readdbpassword();
 		parser = new JSONParser();
@@ -52,43 +58,75 @@ public class cdxdatabase {
 		factory.setVirtualHost("/");
 		factory.setHost(hostname);
 		factory.setPort(5672);
+		
+		setConnection();
+		setupSubscription();
+		consumeData();
 
-		connection = factory.newConnection();
-		channel = connection.createChannel();
 		client = new RestHighLevelClient(RestClient.builder(new HttpHost("elasticsearch", 9200, "http")));
 		request = new IndexRequest(index, "doc", "");
 		jsonMap = new HashMap<>();
-
-		System.out.println(" [*] Database-Connector running. To exit press CTRL+C");
-
-		while (true) {
-
-			while ((_response = channel.basicGet(queueName, true)) != null) {
-
-				message = new String(_response.getBody());
-				routingkey = _response.getEnvelope().getRoutingKey().toString();
-				index = _response.getEnvelope().getExchange().toString();
-				from = _response.getProps().getUserId();
-				
-				if (from == null) { from = "<unverified>"; }
-
-				if (message == null) {
-					continue;
-				} else {
-					try {
-						_message = (JSONObject) parser.parse(message);
-						json = true;
-
-					} catch (Exception e) {
-						json = false;
-					}
-					posttoElastic();
-				}
-			}
-			Thread.sleep(5000);
-		}
 	}
 
+	public static void setupSubscription() {
+		
+		consumer = new DefaultConsumer(channel) {
+
+			@Override
+			public void handleDelivery(String consumerTag, Envelope envelope, BasicProperties properties, byte[] body)
+					throws IOException {
+				message = new String(body, "UTF-8");
+				routingkey = envelope.getRoutingKey().toString();
+				index = envelope.getExchange().toString();
+				from = properties.getUserId();
+				
+				System.out.println(message + "\n" + routingkey + "\n" + index + "\n" + from);
+
+				if (from == null) {
+					from = "<unverified>";
+				}
+				try {
+					_message = (JSONObject) parser.parse(message);
+					json = true;
+
+				} catch (Exception e) {
+					json = false;
+				}
+				posttoElastic();
+			}
+		};
+		
+		if(connection_reset) {
+			connection_reset = false;
+			consumeData();
+		}
+	}
+	
+	public static void setConnection() {
+		
+		try {
+			connection = factory.newConnection();
+			channel = connection.createChannel();
+		} catch (IOException | TimeoutException e) {
+			// TODO Auto-generated catch block
+			setConnection();
+		}
+		
+	}
+	
+	public static void consumeData() {
+		
+		System.out.println(" [*] Database-Connector running. To exit press CTRL+C");
+		try {
+			channel.basicConsume(queueName, true, consumer);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			connection_reset = true;
+			setConnection();
+			setupSubscription();
+		}
+	}
+	
 	public static void posttoElastic() throws IOException {
 
 		if (json) {
@@ -98,12 +136,13 @@ public class cdxdatabase {
 		}
 		jsonMap.put("topic", routingkey);
 		jsonMap.put("from", from);
-		jsonMap.put("insertDate", new Date());
+		jsonMap.put("postDate", new Date());
 
 		request.index(index);
 		request.source(jsonMap);
 
 		indexResponse = client.index(request, RequestOptions.DEFAULT);
+		System.out.println(indexResponse);
 	}
 
 	public static void readdbpassword() {
