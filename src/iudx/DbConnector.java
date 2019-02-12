@@ -52,7 +52,7 @@ public class DbConnector {
 		_message	=	null;
 		factory		=	new ConnectionFactory();
 		
-		factory.setUsername(queueName);
+		factory.setUsername("admin");
 		factory.setPassword(apikey);
 		factory.setVirtualHost("/");
 		factory.setHost(hostname);
@@ -62,7 +62,7 @@ public class DbConnector {
 		setupSubscription();
 		consumeData();
 
-		client = new RestHighLevelClient(RestClient.builder(new HttpHost("elasticsearch", 9200, "http")));
+		client = new RestHighLevelClient(RestClient.builder(new HttpHost("localhost", 9200, "http")));
 		request = new IndexRequest(index, "doc", "");
 		jsonMap = new HashMap<>();
 	}
@@ -84,8 +84,8 @@ public class DbConnector {
 				
 				System.out.println(message + "\n" + routingkey + "\n" + index + "\n" + from);
 
-				if ("".equals(from)) 
-				{
+				if (from == null) 
+				{	System.out.println("Hit");
 					from = "<unverified>";
 				}
 				try 
@@ -142,6 +142,8 @@ public class DbConnector {
 	
 	public static void posttoElastic() throws IOException 
 	{
+		System.out.println("In posttoElastic ");
+		
 		if (json) 
 		{
 			jsonMap.put("data", _message);
@@ -158,8 +160,10 @@ public class DbConnector {
 		request.index(index);
 		request.source(jsonMap);
 
+		System.out.println(jsonMap.toString());
+		
 		indexResponse = client.index(request, RequestOptions.DEFAULT);
 		
-		System.out.println(indexResponse);
+		System.out.println(indexResponse.toString());
 	}
 }
