@@ -5,6 +5,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
+import java.util.logging.Logger;
 
 import com.rabbitmq.client.AMQP.BasicProperties;
 import com.rabbitmq.client.Channel;
@@ -25,6 +26,7 @@ import com.rabbitmq.client.Envelope;
 public class DbConnector {
 
 	static String index = "";
+	static String type = "doc";
 	private static RestHighLevelClient client;
 	static IndexRequest request;
 	static IndexResponse indexResponse;
@@ -32,7 +34,8 @@ public class DbConnector {
 	static String routingkey;
 	static String from;
 	private static final String queueName = "DATABASE";
-	private static final String hostname = "broker";
+	private static final String broker_hostname = "broker";
+	private static final String db_hostname = "elk";
 	private static String apikey = "";
 	static JSONParser parser;
 	static JSONObject _message = null;
@@ -44,26 +47,29 @@ public class DbConnector {
 	static Map<String, Object> jsonMap;
 	static boolean json = false;
 	static boolean connection_reset = false;
-
+	static String[] _index;
+	private final static Logger LOGGER = Logger.getLogger(DbConnector.class.getName());
+	
 	public static void main(String[] argv) 
 	{
 		apikey		=	System.getenv("ADMIN_PWD");
 		parser		=	new JSONParser();
 		_message	=	null;
 		factory		=	new ConnectionFactory();
+		_index = new String[10];
 		
 		factory.setUsername("admin");
 		factory.setPassword(apikey);
 		factory.setVirtualHost("/");
-		factory.setHost(hostname);
+		factory.setHost(broker_hostname);
 		factory.setPort(5672);
 		
 		setConnection();
 		setupSubscription();
 		consumeData();
 
-		client = new RestHighLevelClient(RestClient.builder(new HttpHost("localhost", 9200, "http")));
-		request = new IndexRequest(index, "doc", "");
+		client = new RestHighLevelClient(RestClient.builder(new HttpHost(db_hostname, 9200, "http")));
+		request = new IndexRequest(index, type, "");
 		jsonMap = new HashMap<>();
 	}
 
@@ -82,18 +88,39 @@ public class DbConnector {
 				index 		=	envelope.getExchange().toString();
 				from 		=	properties.getUserId();
 				
-				System.out.println(message + "\n" + routingkey + "\n" + index + "\n" + from);
+				LOGGER.info("\n" + message + "\n" + routingkey + "\n" + index + "\n" + from);
+				System.out.println( routingkey.trim().length() ); 
 
-				if (from == null) 
-				{	System.out.println("Hit");
+				if ((from == null) || (from.trim() == "")) 
+				{	
 					from = "<unverified>";
 				}
+				
+				if (index.contains("/")) 
+				{	
+					type = index;
+					_index = index.split("/");
+					index = _index[0];
+				} 
+				
+				else 
+				{
+					index = "unspecified";
+					type = "<unspecified>";
+				}	
+
+				if ((routingkey == null) || (routingkey.trim().length() == 0)) 
+				{	
+					routingkey = "<unspecified>";
+				}
+				
 				try 
 				{
 					_message = (JSONObject) parser.parse(message);
 					json = true;
-
-				} catch (Exception e) 
+				}
+				
+				catch (Exception e) 
 				{
 					json = false;
 				}
@@ -126,7 +153,7 @@ public class DbConnector {
 	public static void consumeData() 
 	{
 		
-		System.out.println(" [*] Database-Connector running. To exit press CTRL+C");
+		LOGGER.info(" [*] Database-Connector running. To exit press CTRL+C");
 		
 		try 
 		{
@@ -142,12 +169,14 @@ public class DbConnector {
 	
 	public static void posttoElastic() throws IOException 
 	{
-		System.out.println("In posttoElastic ");
+		LOGGER.info("Writing to DB");
 		
 		if (json) 
 		{
+			json = false;
 			jsonMap.put("data", _message);
 		} 
+		
 		else 
 		{
 			jsonMap.put("data", message);
@@ -155,15 +184,16 @@ public class DbConnector {
 		
 		jsonMap.put("topic", routingkey);
 		jsonMap.put("from", from);
+		jsonMap.put("exchange", type);
 		jsonMap.put("postDate", new Date());
 
 		request.index(index);
 		request.source(jsonMap);
 
-		System.out.println(jsonMap.toString());
+		LOGGER.info(jsonMap.toString());
 		
 		indexResponse = client.index(request, RequestOptions.DEFAULT);
 		
-		System.out.println(indexResponse.toString());
+		LOGGER.info(indexResponse.toString());
 	}
 }
